@@ -40,7 +40,10 @@ class HalPowerManager {
 
   // Setup wake up GPIO and enter deep sleep
   // Should be called inside main loop() to handle the currentLockMode
-  void startDeepSleep(HalGPIO& gpio) const;
+  // salver: timerWakeSeconds > 0 also arms the RTC timer as a wake source (the
+  // button keeps working). On the X4 this keeps the battery latch held HIGH
+  // through sleep, since a timer cannot wake a powered-off chip.
+  void startDeepSleep(HalGPIO& gpio, uint64_t timerWakeSeconds = 0) const;
 
   // Get battery percentage (range 0-100)
   uint16_t getBatteryPercentage() const;

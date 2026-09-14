@@ -38,6 +38,7 @@
 #include "fontIds.h"
 #include "images/LoadingIcon.h"
 #include "platform/UsbSerialJtagHandoff.h"
+#include "salver/Salver.h"
 #include "util/ButtonNavigator.h"
 #include "util/ScreenshotUtil.h"
 
@@ -292,7 +293,7 @@ void enterDeepSleep(bool fromTimeout = false) {
   Storage.prepareForDeepSleep();
   LOG_DBG("MAIN", "Entering deep sleep");
 
-  powerManager.startDeepSleep(gpio);
+  powerManager.startDeepSleep(gpio, salver::timerWakeSeconds());
 }
 
 void setupDisplayAndFonts(bool seamless = false) {
@@ -339,6 +340,33 @@ void setupDisplayAndFonts(bool seamless = false) {
   sdFontSystem.begin(renderer);
 
   LOG_DBG("MAIN", "Fonts setup");
+}
+
+// salver: a timer wake is the paper round. Pull today's edition silently and go
+// straight back to sleep; the panel is touched only when the front page (the
+// sleep image) changed, and then just to paint it. Never returns.
+[[noreturn]] static void runSalverTimerWake() {
+  HalPowerManager::Lock powerLock;
+  deepSleepInProgress = true;  // keep silentRestart() inert; no activity runs on this path
+  LOG_INF("MAIN", "Salver timer wake");
+  const salver::SyncResult result = salver::sync();
+  if (WiFi.getMode() != WIFI_MODE_NULL) {
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+  }
+  if (result.sleepImageChanged) {
+    setupDisplayAndFonts(true);
+    APP_STATE.showBootScreen = false;
+    APP_STATE.saveToFile();
+    activityManager.goToSleep(false);  // paints /sleep.bmp: the lock screen is today's headlines
+    display.deepSleep();
+  }
+  halTiltSensor.deepSleep();
+  Storage.prepareForDeepSleep();
+  LOG_INF("MAIN", "Salver: back to sleep (%s)", result.ok ? "ok" : "failed");
+  powerManager.startDeepSleep(gpio, salver::timerWakeSeconds());
+  while (true) {
+  }
 }
 
 void setup() {
@@ -429,6 +457,10 @@ void setup() {
   OPDS_STORE.loadFromFile();
   UITheme::getInstance().reload();
   ButtonNavigator::setMappedInputManager(mappedInputManager);
+  salver::loadConfig();
+  if (salver::enabled() && salver::isTimerWake()) {
+    runSalverTimerWake();
+  }
 
   // Brightness and warmth are always restored. A normal wake starts with the
   // light off unless Restore Light on Wake is enabled; silent maintenance
@@ -443,7 +475,7 @@ void setup() {
       if (!wakeHoldVerified && SETTINGS.shortPwrBtn != CrossPointSettings::SHORT_PWRBTN::SLEEP) {
         LOG_DBG("MAIN", "Power-button wake not held through verification, sleeping");
         Storage.prepareForDeepSleep();
-        powerManager.startDeepSleep(gpio);
+        powerManager.startDeepSleep(gpio, salver::timerWakeSeconds());
       }
       wakePowerReleasePending = true;
       break;
@@ -460,7 +492,7 @@ void setup() {
       break;
 #else
       Storage.prepareForDeepSleep();
-      powerManager.startDeepSleep(gpio);
+      powerManager.startDeepSleep(gpio, salver::timerWakeSeconds());
       break;
 #endif
     case HalGPIO::WakeupReason::AfterFlash:
