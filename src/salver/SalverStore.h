@@ -9,7 +9,7 @@
  * /salver.json on the SD card root: the reader's whole configuration for the
  * morning-paper pull. Absent file = feature off. Only `url` is required.
  *
- *   { "url": "http://salver.home.amber.place",
+ *   { "url": "https://salver.jfave.com",
  *     "editions_dir": "/Editions", "keep_days": 7,
  *     "retry_seconds": 1800, "fallback_seconds": 3600,
  *     "set_sleep_screen": true }

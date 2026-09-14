@@ -43,7 +43,7 @@ exactly like upstream.
 3. Put `salver.json` on the root of the SD card:
 
    ```json
-   { "url": "http://salver.home.amber.place" }
+   { "url": "https://salver.jfave.com" }
    ```
 
    Optional keys and their defaults: `"editions_dir": "/Editions"`,
@@ -53,8 +53,10 @@ exactly like upstream.
    (the device has no idea what time it is yet); that pull sets the clock and
    from then on the server schedules every wake.
 
-Plain `http://` on the LAN is intended: no TLS heap, no auth. The server lives
-on the private tier and the reader only ever sees home Wi-Fi.
+The pull goes over TLS (CrossPoint's wolfSSL client, no certificate pinning);
+the timer-wake path has the heap to spare because no display, fonts or
+activities are loaded. Plain `http://` URLs work too. The firmware does not
+follow redirects, so the URL must be the final one.
 
 ## How a morning goes
 
@@ -71,8 +73,8 @@ on the private tier and the reader only ever sees home Wi-Fi.
                                             05:56  arm timer for X-Salver-Next-Wake-In seconds, deep sleep
 ```
 
-About twenty seconds awake, one full panel refresh at most, and the lock screen
-is today's headlines.
+About twenty to thirty seconds awake, one full panel refresh at most, and the
+lock screen is today's headlines.
 
 ### Scheduling is the server's job
 
@@ -116,7 +118,8 @@ points are listed above; the salver code itself lives in its own directory.
 ## Sequencing
 
 - **v0 (done, zero firmware)**: feedcurator builds the edition and serves
-  `/opds`. Stock CrossPoint's OPDS browser pointed at it works today.
+  `/opds` at `https://salver.jfave.com/opds`. Stock CrossPoint's OPDS browser
+  pointed at it works today.
 - **v1 (this fork)**: timer wake + silent pull + sleep-screen front page.
 - **v2**: a Settings-screen entry to trigger a pull by hand and show the last
   result; web-settings UI for `/salver.json`; migrate to upstream's SD-plugin

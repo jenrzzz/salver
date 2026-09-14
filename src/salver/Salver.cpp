@@ -132,7 +132,8 @@ struct Fetch {
 };
 
 // Conditional GET streamed straight to `tmpPath`; a 304 (or any non-200)
-// writes nothing. Plain http:// on the LAN keeps TLS heap out of the picture.
+// writes nothing. https works (wolfSSL, no pinning); nothing else is loaded
+// on the timer-wake path, so the TLS heap is available.
 Fetch conditionalGet(const std::string& url, const std::string& etag, const char* tmpPath) {
   Fetch r;
   freeink::SecureHttpClient http;
