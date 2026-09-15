@@ -274,6 +274,7 @@ SyncResult sync() {
   } else if (epub.status == 404 && epub.nextWakeIn > 0) {
     // Nothing published yet; the server says when to look again.
     scheduleNext(epub.nextWakeIn, 0);
+    result.editionPending = true;
     return result;
   } else {
     return fail("edition download", epub.nextWakeIn);

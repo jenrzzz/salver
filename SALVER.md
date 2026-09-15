@@ -26,12 +26,13 @@ rebasable. The seductive anti-feature (an on-device feeds app) is not built.
 | `src/salver/SalverStore.{h,cpp}` | `/salver.json` config and `/.crosspoint/salver.json` state (ArduinoJson `PersistableStore`s) |
 | `src/salver/SalverUtil.{h,cpp}` | Pure helpers, host-tested in `test/salver` |
 | `src/main.cpp` | Boot hook: a timer wake runs the paper round before the display is touched; every deep-sleep path arms the timer |
+| `src/activities/settings/SalverSyncActivity.{h,cpp}`, `SettingsActivity.{h,cpp}` | Settings → System → Fetch Salver now, with an on-screen result |
 | `lib/hal/HalPowerManager.{h,cpp}` | `startDeepSleep(gpio, timerWakeSeconds)`: arms `esp_sleep_enable_timer_wakeup`; on the X4 keeps the GPIO13 battery latch HIGH |
 | `lib/hal/HalClock.{h,cpp}` | `getEpoch()` / `setEpoch()` so the server's clock seeds the RTC |
 | `test/CMakeLists.txt`, `test/salver/` | Host unit tests |
 
-No file, no feature: without `/salver.json` on the card the firmware behaves
-exactly like upstream.
+Without `/salver.json` on the card, automatic delivery is disabled and the
+manual fetch screen explains how to configure it.
 
 ## Setup
 
@@ -49,9 +50,33 @@ exactly like upstream.
    Optional keys and their defaults: `"editions_dir": "/Editions"`,
    `"keep_days": 7`, `"retry_seconds": 1800`, `"fallback_seconds": 3600`,
    `"set_sleep_screen": true`.
-4. Put the reader to sleep. The first wake happens after `fallback_seconds`
-   (the device has no idea what time it is yet); that pull sets the clock and
-   from then on the server schedules every wake.
+4. Open **Settings → System → Fetch Salver now** to fetch immediately. The
+   screen reports a download, an unchanged edition, an edition not published
+   yet, or a failure. It reloads `/salver.json`, so configuration copied to
+   the card since boot is picked up. Dismiss the result with Back (or tap on
+   touch devices); C3 devices restart to Home to reclaim Wi-Fi memory. Open
+   the edition from Recent books.
+5. Put the reader to sleep for automatic delivery. With no known next-wake
+   time, the timer is armed for `fallback_seconds` (one hour by default)
+   **from entry into deep sleep**. This is not an hourly poll while awake.
+   Once a pull establishes the clock and schedule, the server sets the next
+   wake; a successful pull without a scheduling header defaults to 24 hours.
+
+### Verify a manual fetch
+
+- With saved Wi-Fi and a valid `/salver.json`, select **Fetch Salver now**.
+  Check `/Editions/<date>.epub` (or your configured directory) and `/sleep.bmp`.
+  Repeat with an unchanged server edition and expect “Edition already up to date”.
+- Check `/.crosspoint/salver.json` for `last_edition`, `next_wake_epoch`, and
+  `failures`. A failed fetch normally retries after 30 minutes; repeated
+  failures back off. The screen distinguishes a server response saying an
+  edition has not been published yet from a failed download.
+- With Wi-Fi unavailable, expect a failure result; without configuration,
+  expect a configuration hint. Verify the screen in all four orientations.
+- In a debug build, monitor `SALV` logs for manual-fetch start/end heap values
+  and HTTP results. Verify free heap stays above 50 KB and repeated fetches
+  followed by dismissal do not leak memory. Device validation is required,
+  particularly for TLS with the display and Settings loaded.
 
 The pull goes over TLS (CrossPoint's wolfSSL client, no certificate pinning);
 the timer-wake path has the heap to spare because no display, fonts or
@@ -120,9 +145,9 @@ points are listed above; the salver code itself lives in its own directory.
 - **v0 (done, zero firmware)**: feedcurator builds the edition and serves
   `/opds` at `https://salver.jfave.com/opds`. Stock CrossPoint's OPDS browser
   pointed at it works today.
-- **v1 (this fork)**: timer wake + silent pull + sleep-screen front page.
-- **v2**: a Settings-screen entry to trigger a pull by hand and show the last
-  result; web-settings UI for `/salver.json`; migrate to upstream's SD-plugin
+- **v1 (this fork)**: timer wake + silent pull + sleep-screen front page,
+  plus a manual fetch and result in Settings.
+- **v2**: web-settings UI for `/salver.json`; migrate to upstream's SD-plugin
   mechanism when it ships so the fork can die.
 - **v3**: the return post — KOSync-derived "what got read" back into feedcurator,
   and one "keep this" button mapping.

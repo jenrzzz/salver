@@ -14,7 +14,7 @@
 // reader needs no timezone and its drifting sleep timer is corrected daily.
 //
 // Configuration lives in /salver.json on the SD card (see SalverStore.h).
-// No file, no feature: stock CrossPoint behaviour is untouched.
+// Without configuration, automatic delivery stays disabled.
 
 #include <cstdint>
 
@@ -24,9 +24,10 @@ struct SyncResult {
   bool ok = false;
   bool editionChanged = false;
   bool sleepImageChanged = false;
+  bool editionPending = false;
 };
 
-// Read /salver.json and the pull state. Call once after Storage.begin().
+// Read /salver.json and the pull state after Storage.begin(), or reload before a manual fetch.
 void loadConfig();
 
 // True when /salver.json names a server.

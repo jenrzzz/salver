@@ -20,6 +20,7 @@
 #include "MappedInputManager.h"
 #include "OpdsServerListActivity.h"
 #include "OtaUpdateActivity.h"
+#include "SalverSyncActivity.h"
 #include "SdCardFontSystem.h"
 #include "SdFirmwareUpdateActivity.h"
 #include "SettingsList.h"
@@ -79,11 +80,13 @@ void SettingsActivity::rebuildSettingsLists() {
   }
 
   // Append device-only ACTION items
+  systemSettings.reserve(systemSettings.size() + 9);
   if (!BoardConfig::hasTouch()) {
     controlsSettings.insert(controlsSettings.begin(),
                             SettingInfo::Action(StrId::STR_REMAP_FRONT_BUTTONS, SettingAction::RemapFrontButtons));
   }
   systemSettings.push_back(SettingInfo::Action(StrId::STR_WIFI_NETWORKS, SettingAction::Network));
+  systemSettings.push_back(SettingInfo::Action(StrId::STR_SALVER_FETCH, SettingAction::SalverSync));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_KOREADER_SYNC, SettingAction::KOReaderSync));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_OPDS_SERVERS, SettingAction::OPDSBrowser));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_CLEAR_READING_CACHE, SettingAction::ClearCache));
@@ -336,6 +339,13 @@ void SettingsActivity::toggleCurrentSetting() {
         break;
       case SettingAction::Network:
         startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput, false), resultHandler);
+        break;
+      case SettingAction::SalverSync:
+        if (auto activity = makeUniqueNoThrow<SalverSyncActivity>(renderer, mappedInput)) {
+          startActivityForResult(std::move(activity), nullptr);
+        } else {
+          LOG_ERR("SETTINGS", "OOM: SalverSyncActivity");
+        }
         break;
       case SettingAction::ClearCache:
         startActivityForResult(std::make_unique<ClearCacheActivity>(renderer, mappedInput), resultHandler);
