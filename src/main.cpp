@@ -458,7 +458,11 @@ void setup() {
   UITheme::getInstance().reload();
   ButtonNavigator::setMappedInputManager(mappedInputManager);
   salver::loadConfig();
-  if (salver::enabled() && salver::isTimerWake()) {
+  const bool salverEnabled = salver::enabled();
+  const bool salverTimerWake = salver::isTimerWake();
+  LOG_INF("MAIN", "Salver: enabled=%d timerWake=%d wakeupReason=%d", salverEnabled, salverTimerWake,
+          static_cast<int>(wakeupReason));
+  if (salverEnabled && salverTimerWake) {
     runSalverTimerWake();
   }
 

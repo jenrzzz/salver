@@ -312,11 +312,32 @@ SyncResult sync() {
 }
 
 uint64_t timerWakeSeconds() {
-  if (!enabled()) return 0;
+  if (!enabled()) {
+    LOG_INF(TAG, "timerWakeSeconds: disabled (configLoaded=%d), no timer armed", configLoaded);
+    return 0;
+  }
   const auto& st = SALVER_STATE;
   const int64_t now = currentEpoch();
-  if (st.nextWakeEpoch > 0 && now > 0) return static_cast<uint64_t>(clampWakeSeconds(st.nextWakeEpoch - now));
+  if (st.nextWakeEpoch > 0 && now > 0) {
+    const auto secs = static_cast<uint64_t>(clampWakeSeconds(st.nextWakeEpoch - now));
+    LOG_INF(TAG, "timerWakeSeconds: %llu s (now=%lld next=%lld)", static_cast<unsigned long long>(secs),
+            static_cast<long long>(now), static_cast<long long>(st.nextWakeEpoch));
+    return secs;
+  }
+  LOG_INF(TAG, "timerWakeSeconds: no clock/schedule yet (now=%lld next=%lld), using fallback %u s",
+          static_cast<long long>(now), static_cast<long long>(st.nextWakeEpoch), SALVER_CONFIG.fallbackSeconds);
   return SALVER_CONFIG.fallbackSeconds;  // no clock yet: the first pull will set one
+}
+
+Status status() {
+  Status s;
+  s.enabled = enabled();
+  if (!s.enabled) return s;
+  s.failures = SALVER_STATE.failures;
+  s.lastEdition = SALVER_STATE.lastEdition;
+  s.nextWakeEpoch = SALVER_STATE.nextWakeEpoch;
+  s.nowEpoch = currentEpoch();
+  return s;
 }
 
 }  // namespace salver

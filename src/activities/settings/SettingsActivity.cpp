@@ -32,6 +32,7 @@
 #include "components/UIThemeTokens.h"
 #include "components/UiAppHelpers.h"
 #include "fontIds.h"
+#include "salver/Salver.h"
 
 namespace fui = freeink::ui;
 
@@ -442,7 +443,37 @@ void SettingsActivity::openSleepTimeoutPicker() {
       });
 }
 
+namespace {
+// "Off" / "Not yet scheduled" / "Next in Xh" (+failure count) for the Salver
+// sync row. Reads salver's in-memory state; no SD I/O on this path.
+std::string salverStatusText() {
+  const auto st = salver::status();
+  if (!st.enabled) return tr(STR_SALVER_STATUS_OFF);
+  if (st.nextWakeEpoch <= 0 || st.nowEpoch <= 0) return tr(STR_SALVER_STATUS_UNSCHEDULED);
+
+  const int64_t remaining = std::max<int64_t>(0, st.nextWakeEpoch - st.nowEpoch);
+  char timeBuf[32];
+  if (remaining >= 3600) {
+    snprintf(timeBuf, sizeof(timeBuf), tr(STR_SALVER_STATUS_NEXT_HOURS),
+              static_cast<unsigned>((remaining + 1800) / 3600));
+  } else {
+    snprintf(timeBuf, sizeof(timeBuf), tr(STR_SALVER_STATUS_NEXT_MINUTES),
+              static_cast<unsigned>(std::max<int64_t>(1, remaining / 60)));
+  }
+  if (st.failures == 0) return timeBuf;
+
+  char failBuf[24];
+  snprintf(failBuf, sizeof(failBuf), tr(STR_SALVER_STATUS_FAILING_FORMAT), static_cast<unsigned>(st.failures));
+  char combined[56];
+  snprintf(combined, sizeof(combined), "%s %s", timeBuf, failBuf);
+  return combined;
+}
+}  // namespace
+
 std::string SettingsActivity::settingValueText(const SettingInfo& setting) {
+  if (setting.type == SettingType::ACTION && setting.action == SettingAction::SalverSync) {
+    return salverStatusText();
+  }
   if (setting.type == SettingType::TOGGLE && setting.valuePtr != nullptr) {
     return SETTINGS.*(setting.valuePtr) ? tr(STR_STATE_ON) : tr(STR_STATE_OFF);
   }

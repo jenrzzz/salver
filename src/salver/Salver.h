@@ -17,6 +17,7 @@
 // Without configuration, automatic delivery stays disabled.
 
 #include <cstdint>
+#include <string>
 
 namespace salver {
 
@@ -26,6 +27,18 @@ struct SyncResult {
   bool sleepImageChanged = false;
   bool editionPending = false;
 };
+
+// Snapshot of the pull state, for a Settings status readout. No SD I/O; may
+// fall back to an RTC (I2C) read if the system clock isn't set yet.
+struct Status {
+  bool enabled = false;
+  uint8_t failures = 0;
+  std::string lastEdition;
+  int64_t nextWakeEpoch = 0;  // UTC seconds; 0 = not yet scheduled
+  int64_t nowEpoch = 0;       // UTC seconds; 0 = clock not set
+};
+
+Status status();
 
 // Read /salver.json and the pull state after Storage.begin(), or reload before a manual fetch.
 void loadConfig();

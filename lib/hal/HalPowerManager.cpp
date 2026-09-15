@@ -69,6 +69,8 @@ void HalPowerManager::setPowerSaving(bool enabled) {
 void HalPowerManager::startDeepSleep(HalGPIO& gpio, uint64_t timerWakeSeconds) const {
   if (timerWakeSeconds > 0) {
     LOG_INF("PWR", "Deep sleep with timer wake in %llu s", static_cast<unsigned long long>(timerWakeSeconds));
+  } else {
+    LOG_INF("PWR", "Deep sleep with no timer wake armed (salver disabled or no schedule)");
   }
 #ifdef ENABLE_SERIAL_LOG
   // Tear down HWCDC so the host sees a clean disconnect and the peripheral
@@ -89,6 +91,7 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio, uint64_t timerWakeSeconds) c
     gpio_set_direction(XTEINK_C3_GPIO13, GPIO_MODE_OUTPUT);
     gpio_set_level(XTEINK_C3_GPIO13, 1);
     gpio_hold_en(XTEINK_C3_GPIO13);
+    LOG_INF("PWR", "X4 battery latch held HIGH for timer wake (sleep current unverified, see SALVER.md)");
   } else if (gpio.isXteinkDevice()) {
     // GPIO13 gates the battery MOSFET on both Xteink C3 boards; driving it low
     // is the battery power-off (the SDK wake source still handles USB power).
@@ -143,7 +146,10 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio, uint64_t timerWakeSeconds) c
 
   // salver: wake sources are additive, so the timer joins the button wake armed below.
   if (timerWakeSeconds > 0) {
-    esp_sleep_enable_timer_wakeup(timerWakeSeconds * 1000000ULL);
+    const esp_err_t err = esp_sleep_enable_timer_wakeup(timerWakeSeconds * 1000000ULL);
+    if (err != ESP_OK) {
+      LOG_ERR("PWR", "esp_sleep_enable_timer_wakeup failed: %d", static_cast<int>(err));
+    }
   }
 
   // Waits for the power button to be physically released (so holding it doesn't
