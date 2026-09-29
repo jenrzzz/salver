@@ -22,6 +22,16 @@ HalPowerManager powerManager;  // Singleton instance
 // X4 Pro display chip select.
 static constexpr gpio_num_t XTEINK_C3_GPIO13 = GPIO_NUM_13;
 
+// salver: keep the Xteink C3 power (GPIO13) on through deep sleep so an armed
+// timer can wake the chip. Release any surviving pad hold first, or the drive
+// is silently ignored.
+static void holdXteinkGpio13High() {
+  gpio_hold_dis(XTEINK_C3_GPIO13);
+  gpio_set_direction(XTEINK_C3_GPIO13, GPIO_MODE_OUTPUT);
+  gpio_set_level(XTEINK_C3_GPIO13, 1);
+  gpio_hold_en(XTEINK_C3_GPIO13);
+}
+
 void HalPowerManager::begin() {
   if (BoardConfig::ACTIVE.batteryAdc >= 0) {
     pinMode(BoardConfig::ACTIVE.batteryAdc, INPUT);
@@ -68,7 +78,8 @@ void HalPowerManager::setPowerSaving(bool enabled) {
 
 void HalPowerManager::startDeepSleep(HalGPIO& gpio, uint64_t timerWakeSeconds) const {
   if (timerWakeSeconds > 0) {
-    LOG_INF("PWR", "Deep sleep with timer wake in %llu s", static_cast<unsigned long long>(timerWakeSeconds));
+    LOG_INF("PWR", "Deep sleep with timer wake in %llu s (GPIO13 held HIGH, sleep current unverified)",
+            static_cast<unsigned long long>(timerWakeSeconds));
   } else {
     LOG_INF("PWR", "Deep sleep with no timer wake armed (salver disabled or no schedule)");
   }
@@ -81,17 +92,14 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio, uint64_t timerWakeSeconds) c
 #endif
 
 #if !SOC_PM_SUPPORT_EXT1_WAKEUP
-  if (gpio.isXteinkDevice() && timerWakeSeconds > 0 && !gpio.deviceIsX3()) {
-    // salver: on the X4, GPIO13 is the battery latch and driving it LOW is a
-    // full power-off that no timer can undo. Hold it HIGH through deep sleep
-    // instead so the RTC timer (and the button, via GPIO wake) can bring the
-    // chip back. The X3 uses GPIO13 for its SD rail only, so the stock
-    // power-off below is both safe and cheaper there.
-    gpio_hold_dis(XTEINK_C3_GPIO13);
-    gpio_set_direction(XTEINK_C3_GPIO13, GPIO_MODE_OUTPUT);
-    gpio_set_level(XTEINK_C3_GPIO13, 1);
-    gpio_hold_en(XTEINK_C3_GPIO13);
-    LOG_INF("PWR", "X4 battery latch held HIGH for timer wake (sleep current unverified, see SALVER.md)");
+  if (gpio.isXteinkDevice() && timerWakeSeconds > 0) {
+    // salver: driving GPIO13 LOW is a full power-off that no timer can undo, on
+    // the X4 (battery latch) and, measured on hardware, on the X3 too: a
+    // battery-powered X3 slept this way comes back with ESP_RST_POWERON, never
+    // a timer wake. Hold it HIGH through deep sleep instead so the RTC timer
+    // (and the button, via GPIO wake) can bring the chip back. Re-asserted
+    // after powerDownRailsForSleep() below, which cuts it as the X3 SD enable.
+    holdXteinkGpio13High();
   } else if (gpio.isXteinkDevice()) {
     // GPIO13 gates the battery MOSFET on both Xteink C3 boards; driving it low
     // is the battery power-off (the SDK wake source still handles USB power).
@@ -134,6 +142,14 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio, uint64_t timerWakeSeconds) c
   // deep-sleep command while its rail is still up (enterDeepSleep() in main.cpp
   // guarantees that ordering).
   freeink::PowerManager::powerDownRailsForSleep();
+
+#if !SOC_PM_SUPPORT_EXT1_WAKEUP
+  // salver: the X3 profile declares GPIO13 as its SD enable, so the rail cut
+  // above just drove it LOW again. Keep the chip powered for the timer.
+  if (gpio.isXteinkDevice() && timerWakeSeconds > 0) {
+    holdXteinkGpio13High();
+  }
+#endif
 
 #if FREEINK_DEVICE_PAPERMONO
   // Its power button is behind the M5PM1 PMIC rather than an ESP GPIO, so

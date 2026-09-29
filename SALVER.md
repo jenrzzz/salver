@@ -27,7 +27,7 @@ rebasable. The seductive anti-feature (an on-device feeds app) is not built.
 | `src/salver/SalverUtil.{h,cpp}` | Pure helpers, host-tested in `test/salver` |
 | `src/main.cpp` | Boot hook: a timer wake runs the paper round before the display is touched; every deep-sleep path arms the timer |
 | `src/activities/settings/SalverSyncActivity.{h,cpp}`, `SettingsActivity.{h,cpp}` | Settings → System → Fetch Salver now, with an on-screen result |
-| `lib/hal/HalPowerManager.{h,cpp}` | `startDeepSleep(gpio, timerWakeSeconds)`: arms `esp_sleep_enable_timer_wakeup`; on the X4 keeps the GPIO13 battery latch HIGH |
+| `lib/hal/HalPowerManager.{h,cpp}` | `startDeepSleep(gpio, timerWakeSeconds)`: arms `esp_sleep_enable_timer_wakeup`; on the X3 and X4 keeps GPIO13 HIGH so the chip stays powered |
 | `lib/hal/HalClock.{h,cpp}` | `getEpoch()` / `setEpoch()` so the server's clock seeds the RTC |
 | `test/CMakeLists.txt`, `test/salver/` | Host unit tests |
 
@@ -121,12 +121,31 @@ after `retry_seconds`, backing off ×8 after four in a row.
 
 ### Power
 
-On the X3, GPIO13 gates only the SD rail, so the stock sleep path already
-leaves the ESP32 in real deep sleep and a timer wake just works. On the X4 the
-same pin is the battery latch and upstream drives it LOW (a full power-off); when
-a timer is armed, salver holds it HIGH instead. **Sleep current on the X4 with
-the latch held has not been measured** — expect tens to hundreds of µA rather
-than ~10 µA. Untested on X4 hardware.
+Upstream's sleep path drives GPIO13 LOW on both Xteink C3 boards. On the X4
+that is the battery latch; on the X3 the SDK calls it the SD rail, but measured
+on hardware (2026-09-29) it is a full power-off there too: on battery, a slept
+X3 never takes a timer wake and the next button press cold-boots it
+(`ESP_RST_POWERON`). On USB power the chip stays up, so the bug hides on the
+bench. When a timer is armed, salver therefore holds GPIO13 HIGH on both boards,
+re-asserting it after `powerDownRailsForSleep()` (which cuts it as the X3 SD
+enable). Verified on an X3: battery-powered timer wakes arrive as
+`ESP_RST_DEEPSLEEP` / `ESP_SLEEP_WAKEUP_TIMER`. **Sleep current with GPIO13
+held HIGH has not been measured** on either board — expect tens to hundreds of
+µA rather than ~10 µA (the SD card stays powered). Untested on X4 hardware.
+
+### Diagnosing wakes
+
+Serial can't see a timer wake (USB re-enumerates after the boot has already
+logged), so with `/salver.json` present every boot, pull result and armed timer
+also goes to `/.crosspoint/salver.log` (last ~3 KB). Read it via File Transfer →
+USB Drive. `reset=8 wake=4` is a timer wake, `reset=8 wake=7` a button wake,
+`reset=1` a cold boot. For bench testing, build with
+`PLATFORMIO_BUILD_FLAGS=-DSALVER_DEBUG_WAKE_SECONDS=60` to arm a fixed one-minute
+timer on every sleep.
+
+Salver requests send `Connection: close`: SecureHttpClient reads an unframed
+body until the socket closes, even for a bodiless 304, so on a kept-alive
+connection every unchanged morning waited out the 60 s timeout per file.
 
 ## Building
 

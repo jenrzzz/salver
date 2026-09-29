@@ -56,4 +56,13 @@ SyncResult sync();
 // off. Safe to call from every sleep path; it only reads state.
 uint64_t timerWakeSeconds();
 
+// Append a line to /.crosspoint/salver.log (kept to the last few KB) when
+// salver is enabled. Serial can't see wake-time logs (USB re-enumerates after
+// the boot has already logged), so wake/sleep decisions go here too. Needs the
+// SD card up: call before Storage.prepareForDeepSleep().
+void logEvent(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
+
+// Boot diagnostics: reset reason and wake cause, to the SD log.
+void logBoot();
+
 }  // namespace salver

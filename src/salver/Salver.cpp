@@ -11,6 +11,7 @@
 #include <sys/time.h>
 
 #include <algorithm>
+#include <cstdarg>
 #include <ctime>
 #include <string>
 #include <vector>
@@ -33,6 +34,7 @@ constexpr int64_t MIN_VALID_EPOCH = 1704067200;  // 2024-01-01: anything earlier
 constexpr int64_t DEFAULT_NEXT_WAKE_S = 24 * 3600;
 constexpr const char* SLEEP_BMP = "/sleep.bmp";
 constexpr const char* SLEEP_TMP = "/.salver-sleep.tmp";
+constexpr const char* LOG_PATH = "/.crosspoint/salver.log";
 
 bool configLoaded = false;
 
@@ -139,6 +141,10 @@ Fetch conditionalGet(const std::string& url, const std::string& etag, const char
   freeink::SecureHttpClient http;
   http.setInsecure();
   http.setTimeout(HTTP_TIMEOUT_MS);
+  // One request per client, so ask the server to close. SecureHttpClient reads
+  // an unframed body until close, even on a bodiless 304; on a kept-alive
+  // connection that wait runs the full timeout.
+  http.setReuse(false);
   if (!http.begin(url)) {
     LOG_ERR(TAG, "Bad URL: %s", url.c_str());
     return r;
@@ -216,6 +222,7 @@ SyncResult fail(const char* why, int64_t hintSeconds) {
   auto& cfg = SALVER_CONFIG;
   auto& st = SALVER_STATE;
   LOG_ERR(TAG, "Pull failed: %s", why);
+  logEvent("pull failed: %s", why);
   const uint8_t failures = static_cast<uint8_t>(std::min<int>(st.failures + 1, 250));
   int64_t retry = hintSeconds > 0 ? hintSeconds : cfg.retrySeconds;
   if (hintSeconds <= 0 && failures >= 4) retry = static_cast<int64_t>(cfg.retrySeconds) * 8;  // back off
@@ -275,6 +282,7 @@ SyncResult sync() {
     // Nothing published yet; the server says when to look again.
     scheduleNext(epub.nextWakeIn, 0);
     result.editionPending = true;
+    logEvent("edition not published yet, next in %lld s", static_cast<long long>(epub.nextWakeIn));
     return result;
   } else {
     return fail("edition download", epub.nextWakeIn);
@@ -308,10 +316,19 @@ SyncResult sync() {
   }
 
   result.ok = true;
+  logEvent("pull ok: edition %s (%d), front page %d, next in %lld s", epub.status == 200 ? "new" : "unchanged",
+           epub.status, bmp.status, static_cast<long long>(nextIn));
   return result;
 }
 
 uint64_t timerWakeSeconds() {
+#ifdef SALVER_DEBUG_WAKE_SECONDS
+  // Bench testing: a short fixed timer, regardless of the server's schedule.
+  if (enabled()) {
+    LOG_INF(TAG, "timerWakeSeconds: debug override %u s", static_cast<unsigned>(SALVER_DEBUG_WAKE_SECONDS));
+    return SALVER_DEBUG_WAKE_SECONDS;
+  }
+#endif
   if (!enabled()) {
     LOG_INF(TAG, "timerWakeSeconds: disabled (configLoaded=%d), no timer armed", configLoaded);
     return 0;
@@ -327,6 +344,58 @@ uint64_t timerWakeSeconds() {
   LOG_INF(TAG, "timerWakeSeconds: no clock/schedule yet (now=%lld next=%lld), using fallback %u s",
           static_cast<long long>(now), static_cast<long long>(st.nextWakeEpoch), SALVER_CONFIG.fallbackSeconds);
   return SALVER_CONFIG.fallbackSeconds;  // no clock yet: the first pull will set one
+}
+
+void logEvent(const char* fmt, ...) {
+  if (!enabled()) return;
+  char msg[160];
+  va_list args;
+  va_start(args, fmt);
+  vsnprintf(msg, sizeof(msg), fmt, args);
+  va_end(args);
+  LOG_INF(TAG, "log: %s", msg);
+
+  // No append mode in HalStorage (openFileForWrite truncates), so keep the
+  // tail of the file and rewrite it. Bounded to ~4 KB of heap, briefly, and
+  // only a handful of times per wake.
+  constexpr size_t KEEP = 3072;
+  std::string text;
+  HalFile in;
+  if (Storage.openFileForRead(TAG, LOG_PATH, in)) {
+    const size_t size = in.fileSize();
+    if (size > KEEP) in.seekSet(size - KEEP);
+    text.resize(std::min(size, KEEP));
+    const int n = in.read(text.data(), text.size());
+    text.resize(n > 0 ? static_cast<size_t>(n) : 0);
+    in.close();
+    if (size > KEEP) {
+      const size_t nl = text.find('\n');  // drop the partial first line
+      text.erase(0, nl == std::string::npos ? text.size() : nl + 1);
+    }
+  }
+
+  char line[200];
+  const int64_t now = currentEpoch();
+  if (now > 0) {
+    const time_t t = static_cast<time_t>(now);
+    tm utc;
+    gmtime_r(&t, &utc);
+    snprintf(line, sizeof(line), "%04d-%02d-%02d %02d:%02d:%02dZ +%lums %s\n", utc.tm_year + 1900, utc.tm_mon + 1,
+             utc.tm_mday, utc.tm_hour, utc.tm_min, utc.tm_sec, millis(), msg);
+  } else {
+    snprintf(line, sizeof(line), "(no clock) +%lums %s\n", millis(), msg);
+  }
+  text += line;
+
+  HalFile out;
+  if (!Storage.openFileForWrite(TAG, LOG_PATH, out)) return;
+  out.write(text.data(), text.size());
+  out.close();
+}
+
+void logBoot() {
+  logEvent("boot %s: reset=%d wake=%d", CROSSPOINT_VERSION, static_cast<int>(esp_reset_reason()),
+           static_cast<int>(esp_sleep_get_wakeup_cause()));
 }
 
 Status status() {

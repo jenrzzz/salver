@@ -255,6 +255,13 @@ static bool loadSleepFrameBuffer() {
 }
 
 // Enter deep sleep mode
+// salver: the timer to arm, logged to the SD card while it is still up.
+static uint64_t salverSleepSeconds(const char* path) {
+  const uint64_t seconds = salver::timerWakeSeconds();
+  salver::logEvent("sleep (%s): timer %llu s", path, static_cast<unsigned long long>(seconds));
+  return seconds;
+}
+
 void enterDeepSleep(bool fromTimeout = false) {
   HalPowerManager::Lock powerLock;  // Ensure we are at normal CPU frequency for sleep preparation
   APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
@@ -290,10 +297,11 @@ void enterDeepSleep(bool fromTimeout = false) {
 
   halTiltSensor.deepSleep();
   display.deepSleep();
+  const uint64_t salverWakeIn = salverSleepSeconds(fromTimeout ? "timeout" : "button");
   Storage.prepareForDeepSleep();
   LOG_DBG("MAIN", "Entering deep sleep");
 
-  powerManager.startDeepSleep(gpio, salver::timerWakeSeconds());
+  powerManager.startDeepSleep(gpio, salverWakeIn);
 }
 
 void setupDisplayAndFonts(bool seamless = false) {
@@ -362,9 +370,10 @@ void setupDisplayAndFonts(bool seamless = false) {
     display.deepSleep();
   }
   halTiltSensor.deepSleep();
+  const uint64_t salverWakeIn = salverSleepSeconds("after timer wake");
   Storage.prepareForDeepSleep();
   LOG_INF("MAIN", "Salver: back to sleep (%s)", result.ok ? "ok" : "failed");
-  powerManager.startDeepSleep(gpio, salver::timerWakeSeconds());
+  powerManager.startDeepSleep(gpio, salverWakeIn);
   while (true) {
   }
 }
@@ -458,6 +467,7 @@ void setup() {
   UITheme::getInstance().reload();
   ButtonNavigator::setMappedInputManager(mappedInputManager);
   salver::loadConfig();
+  salver::logBoot();
   const bool salverEnabled = salver::enabled();
   const bool salverTimerWake = salver::isTimerWake();
   LOG_INF("MAIN", "Salver: enabled=%d timerWake=%d wakeupReason=%d", salverEnabled, salverTimerWake,
@@ -478,8 +488,9 @@ void setup() {
       // device; otherwise the button must still be held (ghost-wake debounce).
       if (!wakeHoldVerified && SETTINGS.shortPwrBtn != CrossPointSettings::SHORT_PWRBTN::SLEEP) {
         LOG_DBG("MAIN", "Power-button wake not held through verification, sleeping");
+        const uint64_t salverWakeIn = salverSleepSeconds("unverified button wake");
         Storage.prepareForDeepSleep();
-        powerManager.startDeepSleep(gpio, salver::timerWakeSeconds());
+        powerManager.startDeepSleep(gpio, salverWakeIn);
       }
       wakePowerReleasePending = true;
       break;
@@ -495,8 +506,11 @@ void setup() {
       // the device in a USB-replug boot loop (or sleep right after a flash).
       break;
 #else
-      Storage.prepareForDeepSleep();
-      powerManager.startDeepSleep(gpio, salver::timerWakeSeconds());
+      {
+        const uint64_t salverWakeIn = salverSleepSeconds("after USB power");
+        Storage.prepareForDeepSleep();
+        powerManager.startDeepSleep(gpio, salverWakeIn);
+      }
       break;
 #endif
     case HalGPIO::WakeupReason::AfterFlash:
