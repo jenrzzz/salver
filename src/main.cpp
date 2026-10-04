@@ -39,6 +39,7 @@
 #include "images/LoadingIcon.h"
 #include "platform/UsbSerialJtagHandoff.h"
 #include "salver/Salver.h"
+#include "salver/SalverPanel.h"
 #include "util/ButtonNavigator.h"
 #include "util/ScreenshotUtil.h"
 
@@ -312,7 +313,9 @@ void setupDisplayAndFonts(bool seamless = false) {
   static bool controllerResolved = false;
   if (!controllerResolved) {
     controllerResolved = true;
-    if (freeink::applyXteinkDisplayController()) {
+    if (salver::resolveX4ClassicPanel()) {
+      LOG_DBG("MAIN", "Panel controller: resolved by salver X4C fallback");
+    } else if (freeink::applyXteinkDisplayController()) {
       LOG_DBG("MAIN", "Panel controller: UltraChip UC81xx variant detected");
     }
   }
