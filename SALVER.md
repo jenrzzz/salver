@@ -29,7 +29,8 @@ rebasable. The seductive anti-feature (an on-device feeds app) is not built.
 | `src/salver/Salver.{h,cpp}` | The paper round: Wi-Fi → two conditional GETs → SD → state → next wake |
 | `src/salver/SalverStore.{h,cpp}` | `/salver.json` config and `/.crosspoint/salver.json` state (ArduinoJson `PersistableStore`s) |
 | `src/salver/SalverUtil.{h,cpp}` | Pure helpers, host-tested in `test/salver` |
-| `src/main.cpp` | Boot hook: a timer wake runs the paper round before the display is touched; every deep-sleep path arms the timer |
+| `src/salver/SalverPanel.{h,cpp}` | X4 Classic panel fallback: with no factory `hw_calib/screenType`, probe the display bus instead of assuming SSD1677 |
+| `src/main.cpp` | Boot hook: a timer wake runs the paper round before the display is touched; every deep-sleep path arms the timer; the X4C panel fallback runs before the SDK's controller selection |
 | `src/activities/settings/SalverSyncActivity.{h,cpp}`, `SettingsActivity.{h,cpp}` | Settings → System → Fetch Salver now, with an on-screen result |
 | `lib/hal/HalPowerManager.{h,cpp}` | `startDeepSleep(gpio, timerWakeSeconds)`: arms `esp_sleep_enable_timer_wakeup`; on the X3 and X4 keeps GPIO13 HIGH so the chip stays powered |
 | `lib/hal/HalClock.{h,cpp}` | `getEpoch()` / `setEpoch()` so the server's clock seeds the RTC |
@@ -110,13 +111,24 @@ piece is never offered twice within 30 days.
 
 The X4 Classic (`x4c`) is an ESP32-S3 board with 8 MB PSRAM and a BM8563
 RTC. It has **no frontlight**, so evening reading needs a lamp. It runs its
-own build, `pio run -e x4c -t upload`, and needs no salver code changes:
+own build, `pio run -e x4c -t upload`. The paper round itself needs no
+X4C-specific code:
 
 - the timer-wake hook runs on every board;
 - on the S3, `startDeepSleep()` holds the GPIO1 peripheral rail HIGH through
   sleep (the generic latch loop), and the C3-only GPIO13 block compiles out;
 - the timer is added to the EXT1 button wake;
 - `HalClock::setEpoch()` sets the BM8563 through the SDK RTC driver.
+
+The one X4C-specific change is the panel. Upstream picks the X4C panel
+controller from the factory NVS key `hw_calib/screenType` alone and assumes
+SSD1677 when the key is missing. Some X4C V2 units ship with no `hw_calib`
+namespace at all and an UltraChip panel, so the firmware ran but the screen
+never changed. `SalverPanel` probes the display bus in that case. The SDK
+skips this probe on the X4C because the bus has no MISO, but it reads back
+over the half-duplex SDA line, and a V2 answers it (`VER=00 0F 68 00 00`,
+LUT_VER 0x68 → UC8279). A unit that has the key, or that doesn't answer the
+probe, behaves exactly as upstream.
 
 Setup is otherwise as above: join Wi-Fi, copy `salver.json`, then use
 **Fetch Salver now** or put the reader to sleep.
