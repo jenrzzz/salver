@@ -26,6 +26,8 @@ jobs:
             asset: firmware-sticky.bin
           - pio_env: x4pro-gh_release
             asset: firmware-x4pro.bin
+          - pio_env: x4c-gh_release
+            asset: firmware-x4c.bin
           - pio_env: papermono-gh_release
             asset: firmware-papermono.bin
     steps:
