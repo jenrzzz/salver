@@ -7,6 +7,10 @@ while the reader sleeps, a timer wakes it; it joins home Wi-Fi, pulls one EPUB
 (the front page, which becomes the sleep screen), and goes back to sleep. Press
 a button and the edition is already open.
 
+The same firmware delivers a second, **evening edition** to an Xteink X4
+Classic: three to five complete long reads, picked from the unread feeds and
+waiting by 18:30 (see [The evening edition](#the-evening-edition-x4-classic)).
+
 The whole fork is a few hundred lines on top of upstream `1.6.0`, and it is
 meant to stay that way so it can be rebased on each upstream release.
 
@@ -83,6 +87,40 @@ the timer-wake path has the heap to spare because no display, fonts or
 activities are loaded. Plain `http://` URLs work too. The firmware does not
 follow redirects, so the URL must be the final one.
 
+## The evening edition (X4 Classic)
+
+The firmware is identical; only the stream differs. feedcurator serves the
+same routes under `/evening`. Because the firmware appends
+`/editions/latest.{epub,bmp}` to `url`, the evening reader's card holds:
+
+```json
+{ "url": "https://salver.jfave.com/evening" }
+```
+
+Each evening, around 17:30, feedcurator does the following:
+
+- takes the week's unread entries that Miniflux estimates at 12 minutes or more;
+- has Claude pick the pieces worth an evening, each with a one-line note on why;
+- fetches each piece in full (no 40 KB cut);
+- packs one chapter per piece and serves it, with a 480×800 cover listing
+  tonight's titles that becomes the sleep screen.
+
+The reader wakes at 18:30 local and sleeps until the same time tomorrow. A
+piece is never offered twice within 30 days.
+
+The X4 Classic (`x4c`) is an ESP32-S3 board with 8 MB PSRAM and a BM8563
+RTC. It has **no frontlight**, so evening reading needs a lamp. It runs its
+own build, `pio run -e x4c -t upload`, and needs no salver code changes:
+
+- the timer-wake hook runs on every board;
+- on the S3, `startDeepSleep()` holds the GPIO1 peripheral rail HIGH through
+  sleep (the generic latch loop), and the C3-only GPIO13 block compiles out;
+- the timer is added to the EXT1 button wake;
+- `HalClock::setEpoch()` sets the BM8563 through the SDK RTC driver.
+
+Setup is otherwise as above: join Wi-Fi, copy `salver.json`, then use
+**Fetch Salver now** or put the reader to sleep.
+
 ## How a morning goes
 
 ```
@@ -133,6 +171,11 @@ enable). Verified on an X3: battery-powered timer wakes arrive as
 held HIGH has not been measured** on either board — expect tens to hundreds of
 µA rather than ~10 µA (the SD card stays powered). Untested on X4 hardware.
 
+The S3 boards (X4 Pro, X4 Classic) don't use GPIO13 as a latch; it is the
+display CS there. Instead, the generic latch loop holds GPIO1, the master
+peripheral rail, HIGH through every sleep, timer or not. Timer wakes on the X4
+Classic have **not yet been verified on hardware**.
+
 ### Diagnosing wakes
 
 Serial can't see a timer wake (USB re-enumerates after the boot has already
@@ -153,6 +196,7 @@ connection every unchanged morning waited out the 60 s timeout per file.
 git submodule update --init --recursive
 pio run -e default            # X3/X4 share one C3 binary
 pio run -e default -t upload
+pio run -e x4c -t upload      # X4 Classic (ESP32-S3), the evening reader
 cmake -S test -B build/test && cmake --build build/test --target SalverUtilTest && ./build/test/salver/SalverUtilTest
 ```
 
@@ -176,7 +220,10 @@ points are listed above; the salver code itself lives in its own directory.
 
 - X3 battery capacity (350 or 650 mAh?) — bounds how many failed wakes a flaky
   network can cost per day.
-- X4 sleep current with GPIO13 held HIGH.
+- X4 sleep current with GPIO13 held HIGH; X4 Classic sleep current with GPIO1
+  held HIGH and the timer armed.
+- Whether a 300 KB long-read chapter opens comfortably on the X4 Classic (the
+  S3 has PSRAM, but the chapter cache is still built on first open).
 - How large an edition can be before CrossPoint's chapter cache makes the first
   open sluggish on a C3 (feedcurator caps at 15 clusters × 3 articles × 40 KB).
 - Whether the paper round fits upstream's planned "whitelisted job queue"
