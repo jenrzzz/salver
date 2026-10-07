@@ -455,10 +455,10 @@ std::string salverStatusText() {
   char timeBuf[32];
   if (remaining >= 3600) {
     snprintf(timeBuf, sizeof(timeBuf), tr(STR_SALVER_STATUS_NEXT_HOURS),
-              static_cast<unsigned>((remaining + 1800) / 3600));
+             static_cast<unsigned>((remaining + 1800) / 3600));
   } else {
     snprintf(timeBuf, sizeof(timeBuf), tr(STR_SALVER_STATUS_NEXT_MINUTES),
-              static_cast<unsigned>(std::max<int64_t>(1, remaining / 60)));
+             static_cast<unsigned>(std::max<int64_t>(1, remaining / 60)));
   }
   if (st.failures == 0) return timeBuf;
 

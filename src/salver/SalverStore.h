@@ -44,7 +44,7 @@ class SalverState : public PersistableStore<SalverState> {
  public:
   std::string epubEtag;
   std::string bmpEtag;
-  std::string lastEdition;   // SD path of the newest edition
+  std::string lastEdition;    // SD path of the newest edition
   int64_t nextWakeEpoch = 0;  // UTC seconds; 0 = unknown
   uint8_t failures = 0;       // consecutive failed pulls
 
